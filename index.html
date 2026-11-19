@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101d2b">
 <title>Веломаршрути Звягеля</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
@@ -47,14 +47,35 @@ label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:9px}
 .f input,.f select,.f textarea{display:block;width:100%;margin-top:3px;background:#0f1b27;color:#fff;border:1px solid #ffffff30;border-radius:7px;padding:8px;font:13px system-ui}
 .f input[type=color]{height:36px;padding:2px}
 input[type=file]{display:none}
-@media(max-width:800px){.layout{grid-template-columns:1fr;height:auto}.mapbox{order:0;height:62vh}.side{order:1;border-right:0}}
+body{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.layout{flex:1;height:auto;min-height:0}.mapbox{min-height:0}
+.grab{display:none;position:sticky;top:0;z-index:2;margin:0 -14px 6px;padding:14px;background:var(--panel);align-items:center;justify-content:space-between;font-weight:800;border-radius:18px 18px 0 0;cursor:pointer}
+.go{width:100%;margin-top:8px;padding:12px;font-size:14px}
+#fab{position:absolute;z-index:1100;left:50%;transform:translateX(-50%);bottom:24px;font-size:16px;padding:14px 24px;border-radius:30px;box-shadow:0 6px 20px #000a}
+#hud{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:1300;max-width:520px;background:var(--panel);border:1px solid #ffffff30;border-radius:16px;padding:12px;box-shadow:0 6px 24px #000a}
+.hudrow{display:flex;justify-content:space-around;text-align:center}.hudrow b{display:block;font-size:30px;line-height:1.1;color:var(--lime)}.hudrow small{color:var(--muted);font-size:11px}
+.bar{height:8px;background:#ffffff1a;border-radius:4px;margin:10px 0;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--lime);transition:width .5s}
+#hMsg{font-size:13px;margin-bottom:8px;text-align:center}#hMsg.off{color:#ff9b7a;font-weight:800}
+#hud .row button{flex:1;min-height:42px}
+#toast{position:absolute;z-index:1250;top:58px;left:50%;transform:translateX(-50%);background:#000d;border:1px solid #ffffff30;padding:8px 12px;border-radius:10px;font-size:12px;max-width:86%;text-align:center;pointer-events:none;opacity:0;transition:opacity .2s}#toast.on{opacity:1}
+body.live .tools,body.live #fab{display:none}
+@media(pointer:coarse){.vx{width:24px;height:24px;margin:-4px 0 0 -4px}}
+@media(max-width:800px){
+ header{padding:8px 12px}h1{font-size:17px}header small{display:none}
+ .layout{display:block;position:relative}.mapbox{height:100%}#map{min-height:0}
+ .side{position:absolute;left:0;right:0;bottom:0;z-index:1200;max-height:82%;border:0;border-radius:18px 18px 0 0;box-shadow:0 -6px 24px #000a;padding-top:0;transform:translateY(calc(100% - 52px - env(safe-area-inset-bottom)));transition:transform .25s}
+ .side.open{transform:none}.grab{display:flex}
+ .leaflet-bottom{bottom:56px}#fab{bottom:68px}
+ body.live .side{display:none}
+ button,.btn{min-height:40px}button.sm{min-height:36px;padding:6px 11px}.item{padding:12px}
+}
 </style></head><body>
 <header>
  <h1>Веломаршрути <span>Звягеля</span><small>Карта маршрутів і місць громади</small></h1>
  <label class="switch"><input type="checkbox" id="tEdit"> Режим редагування</label>
 </header>
 <div class="layout">
-<aside class="side">
+<aside class="side"><div class="grab" id="grab"><span>Маршрути й точки</span><span>▲</span></div>
  <h2>Маршрути <span class="ed"><button class="sm" id="bNewRoute">+ Новий</button></span></h2>
  <div id="rList"></div>
 
@@ -85,6 +106,12 @@ input[type=file]{display:none}
   <button id="bUndo" class="alt" hidden>↶ Скасувати точку</button>
   <button id="bDone" hidden>Готово</button>
  </div>
+ <div id="hud" hidden>
+  <div class="hudrow"><div><b id="hRem">–</b><small>залишилось, км</small></div><div><b id="hSpd">–</b><small>км/год</small></div><div><b id="hTime">0:00</b><small>час</small></div></div>
+  <div class="bar"><i id="hBar"></i></div><div id="hMsg">Шукаємо GPS…</div>
+  <div class="row"><button class="alt" id="hCenter">Центрувати</button><button class="danger" id="hStop">Завершити</button></div>
+ </div>
+ <button id="fab" hidden>▶ Поїхали</button><div id="toast"></div>
  <div id="map"></div>
 </div>
 </div>
@@ -126,7 +153,7 @@ const SEED={routes:[
 let S=null,edit=false,mode=null,selId=null,editId=null,activePoly=null,pending=null;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>Math.random().toString(36).slice(2,9);
-const status=t=>$('status').textContent=t;
+const status=t=>{$('status').textContent=t;toast(t)};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){status('Не вдалося зберегти в браузері')}};
 const getR=id=>S.routes.find(r=>r.id===id), getP=id=>S.points.find(p=>p.id===id);
 const valid=d=>d&&Array.isArray(d.routes)&&Array.isArray(d.points);
@@ -161,9 +188,9 @@ function drawMap(){
   const m=L.marker(p,{draggable:true,icon:L.divIcon({className:'',html:`<div class="vx ${i===0?'st':i===r.pts.length-1?'en':''}"></div>`,iconSize:[16,16],iconAnchor:[8,8]})}).addTo(vxL);
   m.on('drag',()=>{r.pts[i]=[m.getLatLng().lat,m.getLatLng().lng];activePoly&&activePoly.setLatLngs(r.pts)});
   m.on('dragend',()=>{save();drawList()});
-  m.on('contextmenu dblclick',ev=>{L.DomEvent.stop(ev);r.pts.splice(i,1);save();render()});
+  m.on('contextmenu dblclick',ev=>{L.DomEvent.stop(ev);r.pts.splice(i,1);save();render()});m.bindPopup(()=>{const b=document.createElement('button');b.className='sm danger';b.textContent='Видалити точку';b.onclick=()=>{r.pts.splice(i,1);save();render()};return b});
  });
- $('bUndo').hidden=!editId;$('bDone').hidden=!(editId||mode);
+ $('bUndo').hidden=!editId;$('bDone').hidden=!(editId||mode);$('fab').hidden=!(selId&&!editId&&!mode&&!live);
 }
 function drawList(){
  const rl=$('rList');
@@ -172,6 +199,7 @@ function drawList(){
   <div class="meta">${km(r.pts).toFixed(1)} км · ${esc(r.diff||'')} · ${r.pts.length} точок${r.draft?' · <b style="color:var(--orange)">чернетка</b>':''}</div>
   ${r.desc?`<div class="meta">${esc(r.desc)}</div>`:''}
   <div class="row">
+   <button class="go" data-a="go">▶ Поїхали</button>
    <button class="sm alt" data-a="hide">${r.hidden?'Показати':'Сховати'}</button>
    <button class="sm alt" data-a="gpx">GPX</button>
    <span class="ed row"><button class="sm ${editId===r.id?'on':''}" data-a="edit">Змінити лінію</button><button class="sm alt" data-a="props">Параметри</button><button class="sm danger" data-a="del">Видалити</button></span>
@@ -180,15 +208,15 @@ function drawList(){
 }
 function render(){drawMap();drawList()}
 function fitAll(){const b=L.featureGroup([...S.points.map(p=>L.marker([p.lat,p.lng])),...S.routes.filter(r=>r.pts.length).map(r=>L.polyline(r.pts))]).getBounds();if(b.isValid())map.fitBounds(b.pad(.2))}
-function select(id,fit=true){selId=id;const r=getR(id);if(fit&&r&&r.pts.length>1)map.fitBounds(L.polyline(r.pts).getBounds().pad(.15));render();if(r)status(`${r.name}: ${km(r.pts).toFixed(2)} км`)}
+function select(id,fit=true){closeSheet();selId=id;const r=getR(id);if(fit&&r&&r.pts.length>1)map.fitBounds(L.polyline(r.pts).getBounds().pad(.15));render();if(r)status(`${r.name}: ${km(r.pts).toFixed(2)} км`)}
 function insertAt(r,ll){let best=0,bd=1e9;const p=map.latLngToLayerPoint(ll);
  for(let i=0;i<r.pts.length-1;i++){const d=L.LineUtil.pointToSegmentDistance(p,map.latLngToLayerPoint(r.pts[i]),map.latLngToLayerPoint(r.pts[i+1]));if(d<bd){bd=d;best=i}}
  r.pts.splice(best+1,0,[ll.lat,ll.lng]);status('Точку вставлено в лінію')}
 
 function stopEditing(){editId=null;mode=null;map.getContainer().style.cursor='';render()}
-function startEdit(id){editId=id;mode=null;selId=id;map.getContainer().style.cursor='crosshair';render();status('Клікайте по карті, щоб додавати точки в кінець. Тягніть білі кружечки — щоб переміщати, клік по лінії — вставити точку, правий клік або подвійний клік по кружечку — видалити.')}
+function startEdit(id){closeSheet();editId=id;mode=null;selId=id;map.getContainer().style.cursor='crosshair';render();status('Клікайте по карті, щоб додавати точки в кінець. Тягніть білі кружечки — щоб переміщати, клік по лінії — вставити точку, правий клік або подвійний клік по кружечку — видалити.')}
 $('bNewRoute').onclick=()=>{const r={id:uid(),name:'Новий маршрут',color:COLORS[S.routes.length%COLORS.length],diff:'Легкий',desc:'',pts:[]};S.routes.push(r);save();startEdit(r.id)};
-$('bNewPoint').onclick=()=>{editId=null;mode='point';map.getContainer().style.cursor='crosshair';render();status('Клікніть на карті там, де потрібна нова точка.')};
+$('bNewPoint').onclick=()=>{closeSheet();editId=null;mode='point';map.getContainer().style.cursor='crosshair';render();status('Клікніть на карті там, де потрібна нова точка.')};
 $('bDone').onclick=()=>{stopEditing();status('Готово. Зміни збережено.')};
 $('bUndo').onclick=()=>{const r=getR(editId);if(r&&r.pts.length){r.pts.pop();save();render()}};
 map.on('click',e=>{
@@ -221,7 +249,8 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('di
 /* list clicks */
 $('rList').onclick=e=>{
  const it=e.target.closest('[data-r]');if(!it)return;const id=it.dataset.r,a=e.target.dataset.a,r=getR(id);
- if(a==='hide'){r.hidden=!r.hidden;save();render()}
+ if(a==='go')startLive(id);
+ else if(a==='hide'){r.hidden=!r.hidden;save();render()}
  else if(a==='gpx')exportGpx(r);
  else if(a==='edit')editId===id?stopEditing():startEdit(id);
  else if(a==='props')openRoute(id);
@@ -265,6 +294,63 @@ $('bLocate').onclick=()=>{
   L.circleMarker(c,{radius:8,color:'#fff',weight:3,fillColor:'#2878e8',fillOpacity:1}).addTo(map).bindPopup('Ви тут').openPopup();map.setView(c,16);status('Місце визначено')},
   er=>status('Не вдалося визначити місце: '+er.message),{enableHighAccuracy:true,timeout:10000});
 };
+
+/* live navigation */
+const mq=matchMedia('(max-width:800px)'),sheet=document.querySelector('.side');
+const closeSheet=()=>{if(mq.matches)sheet.classList.remove('open')};
+$('grab').onclick=()=>sheet.classList.toggle('open');
+let tt,live=null,wl=null;
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),4500)}
+const wakeLock=async()=>{try{wl=await navigator.wakeLock.request('screen')}catch(e){}};
+document.addEventListener('visibilitychange',()=>{if(live&&document.visibilityState==='visible')wakeLock()});
+function project(pts,cum,ll,lo,hi){
+ const k=Math.cos(ll[0]*Math.PI/180),X=p=>p[1]*111320*k,Y=p=>p[0]*110540,px=X(ll),py=Y(ll);let b={d:1e9,along:0,i:0};
+ for(let i=lo;i<=hi&&i<pts.length-1;i++){
+  const ax=X(pts[i]),ay=Y(pts[i]),dx=X(pts[i+1])-ax,dy=Y(pts[i+1])-ay,l2=dx*dx+dy*dy;
+  const t=l2?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/l2)):0,d=Math.hypot(px-ax-t*dx,py-ay-t*dy);
+  if(d<b.d)b={d,i,along:cum[i]+t*(cum[i+1]-cum[i])};
+ }return b}
+function startLive(id){
+ const r=getR(id);
+ if(!r||r.pts.length<2)return status('У маршруті замало точок');
+ if(!navigator.geolocation)return status('Геолокація недоступна на цьому пристрої');
+ if(live)stopLive(true);
+ editId=null;mode=null;selId=id;closeSheet();
+ const cum=[0];for(let i=1;i<r.pts.length;i++)cum.push(cum[i-1]+map.distance(r.pts[i-1],r.pts[i]));
+ live={r,cum,total:cum[cum.length-1],t0:Date.now(),track:[],follow:true,idx:0,off:false,me:null,acc:null,pos:null};
+ $('hud').hidden=false;$('hMsg').textContent='Шукаємо GPS…';$('hMsg').className='';$('hBar').style.width='0';$('hRem').textContent=(live.total/1000).toFixed(1);$('hSpd').textContent='–';
+ document.body.classList.add('live');render();map.fitBounds(L.polyline(r.pts).getBounds().pad(.2));
+ live.watch=navigator.geolocation.watchPosition(onPos,er=>{$('hMsg').textContent='GPS: '+(er.code===1?'дозвольте доступ до місця':er.message)},{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+ live.timer=setInterval(()=>{const s=Math.floor((Date.now()-live.t0)/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60);$('hTime').textContent=(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s%60).padStart(2,'0')},1000);
+ wakeLock();
+}
+function onPos(p){
+ if(!live)return;const ll=[p.coords.latitude,p.coords.longitude],r=live.r;live.pos=ll;
+ if(!live.me){live.me=L.circleMarker(ll,{radius:9,color:'#fff',weight:3,fillColor:'#2878e8',fillOpacity:1}).addTo(map);live.acc=L.circle(ll,{radius:p.coords.accuracy,weight:1,color:'#2878e8',fillOpacity:.12}).addTo(map)}
+ live.me.setLatLng(ll);live.acc.setLatLng(ll).setRadius(p.coords.accuracy);
+ if(p.coords.accuracy<50)live.track.push([ll[0],ll[1],Date.now()]);
+ let pr=project(r.pts,live.cum,ll,Math.max(0,live.idx-2),live.idx+12);
+ if(pr.d>60){const g=project(r.pts,live.cum,ll,0,r.pts.length);if(g.d<pr.d)pr=g}
+ live.idx=pr.i;const rem=(live.total-pr.along)/1000,off=pr.d>40,m=$('hMsg');
+ $('hRem').textContent=rem.toFixed(1);$('hBar').style.width=Math.min(100,pr.along/live.total*100)+'%';
+ $('hSpd').textContent=p.coords.speed!=null&&p.coords.speed>=0?(p.coords.speed*3.6).toFixed(0):'–';
+ if(off&&!live.off&&navigator.vibrate)navigator.vibrate([200,100,200]);live.off=off;
+ m.className=off?'off':'';m.textContent=off?`⚠ Ви відхилились від маршруту на ${Math.round(pr.d)} м`:rem<.03?'🏁 Ви на фініші!':'Ви на маршруті';
+ if(live.follow)map.setView(ll,Math.max(map.getZoom(),16));
+}
+function stopLive(silent){
+ if(!live)return;const l=live;live=null;
+ navigator.geolocation.clearWatch(l.watch);clearInterval(l.timer);l.me&&map.removeLayer(l.me);l.acc&&map.removeLayer(l.acc);
+ if(wl){wl.release().catch(()=>{});wl=null}
+ $('hud').hidden=true;document.body.classList.remove('live');render();
+ if(!silent&&l.track.length>10&&confirm('Зберегти запис поїздки у GPX?')){
+  const x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Velokarta Zviahel" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${esc(l.r.name)} (поїздка)</name><trkseg>${l.track.map(p=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><time>${new Date(p[2]).toISOString()}</time></trkpt>`).join('')}</trkseg></trk></gpx>`;
+  download('poizdka.gpx',x,'application/gpx+xml');
+ }
+}
+$('fab').onclick=()=>startLive(selId);$('hStop').onclick=()=>stopLive(false);
+$('hCenter').onclick=()=>{if(live&&live.pos){live.follow=true;map.setView(live.pos,17)}};
+map.on('dragstart',()=>{if(live)live.follow=false});
 
 /* init: local data > data.json > seed */
 (async()=>{
