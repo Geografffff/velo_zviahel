@@ -99,6 +99,8 @@ body.live .tools,body.rec .tools,body.live #acts,body.rec #acts{display:none}
   <p class="meta">Зміни зберігаються в цьому браузері. Щоб їх бачили всі відвідувачі, збережіть копію JSON, назвіть файл <b>data.json</b> і покладіть поруч з index.html на хостингу.</p>
  </div>
 
+ <div id="admBox"><button class="alt" id="bLogin" style="width:100%;margin-top:12px" hidden>🔒 Вхід для адміна</button>
+ <div id="admPanel" hidden><h2>Заявки <span id="admCount"></span><span class="row"><button class="sm alt" id="bAdmRef">Оновити</button><button class="sm alt" id="bLogout">Вийти</button></span></h2><div id="admList"></div></div></div>
  <div class="status" id="status">Оберіть маршрут або точку на карті.</div>
  <div class="row"><button class="alt" id="bLocate">Моє місце</button><button class="alt" id="bFit">Показати все</button></div>
  <div class="warning"><b>Увага:</b> карта не гарантує безпеку маршруту. Перевіряйте покриття, рух транспорту й доступність. Дані © OpenStreetMap contributors.</div>
@@ -123,6 +125,10 @@ body.live .tools,body.rec .tools,body.live #acts,body.rec #acts{display:none}
 </div>
 </div>
 
+<dialog id="dLogin"><form method="dialog" id="fLogin"><h3>Вхід для адміністратора</h3>
+ <label class="f">Пошта<input id="lEmail" type="email" required autocomplete="username"></label>
+ <label class="f">Пароль<input id="lPass" type="password" required autocomplete="current-password"></label>
+ <p class="meta" id="lErr"></p><div class="row"><button type="submit">Увійти</button><button type="button" class="alt" data-close>Скасувати</button></div></form></dialog>
 <dialog id="dPoint"><form method="dialog" id="fPoint">
  <h3 id="dpTitle">Точка</h3>
  <label class="f">Назва<input id="pName" required maxlength="80"></label>
@@ -161,7 +167,7 @@ let S=null,edit=false,mode=null,selId=null,editId=null,activePoly=null,pending=n
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>Math.random().toString(36).slice(2,9);
 const status=t=>{$('status').textContent=t;toast(t)};
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){status('Не вдалося зберегти в браузері')}};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(local()))}catch(e){status('Не вдалося зберегти в браузері')}};
 const getR=id=>S.routes.find(r=>r.id===id), getP=id=>S.points.find(p=>p.id===id);
 const valid=d=>d&&Array.isArray(d.routes)&&Array.isArray(d.points);
 
@@ -173,12 +179,12 @@ const km=pts=>{let d=0;for(let i=1;i<pts.length;i++)d+=map.distance(pts[i-1],pts
 function popHtml(p){
  const c=CATS[p.cat]||CATS.other;
  return `<b>${c[0]} ${esc(p.name)}</b><br>${esc(p.desc)}${p.url&&/^https?:/.test(p.url)?`<br><a target="_blank" rel="noopener" href="${esc(p.url)}">Детальніше ↗</a>`:''}`+
- (edit?`<div class="row"><button class="sm" onclick="openPoint('${p.id}')">Редагувати</button><button class="sm danger" onclick="delPoint('${p.id}')">Видалити</button></div>`:'');
+ (p.mine&&cloud()?`<div class="row"><button class="sm" onclick="send('points','${p.id}')">📤 Надіслати на перевірку</button></div>`:'')+(edit&&!p.remote?`<div class="row"><button class="sm" onclick="openPoint('${p.id}')">Редагувати</button><button class="sm danger" onclick="delPoint('${p.id}')">Видалити</button></div>`:'');
 }
 function drawMap(){
  poiL.clearLayers();rtL.clearLayers();vxL.clearLayers();activePoly=null;
  if($('tPoi').checked)S.points.forEach(p=>{
-  const m=L.marker([p.lat,p.lng],{draggable:edit,icon:L.divIcon({className:'',html:`<div class="pin">${(CATS[p.cat]||CATS.other)[0]}</div>`,iconSize:[32,32],iconAnchor:[16,16]})}).addTo(poiL);
+  const m=L.marker([p.lat,p.lng],{draggable:edit&&!p.remote,icon:L.divIcon({className:'',html:`<div class="pin">${(CATS[p.cat]||CATS.other)[0]}</div>`,iconSize:[32,32],iconAnchor:[16,16]})}).addTo(poiL);
   m.bindPopup(()=>popHtml(p));
   m.on('dragend',()=>{const c=m.getLatLng();p.lat=c.lat;p.lng=c.lng;save();status('Точку переміщено')});
  });
@@ -209,7 +215,7 @@ function drawList(){
    <button class="go" data-a="go">▶ Поїхали</button>
    <button class="sm alt" data-a="hide">${r.hidden?'Показати':'Сховати'}</button>
    <button class="sm alt" data-a="gpx">GPX</button>
-   <span class="ed row"><button class="sm ${editId===r.id?'on':''}" data-a="edit">Змінити лінію</button><button class="sm alt" data-a="props">Параметри</button><button class="sm danger" data-a="del">Видалити</button></span>
+   ${r.remote?'':`<span class="ed row"><button class="sm ${editId===r.id?'on':''}" data-a="edit">Змінити лінію</button><button class="sm alt" data-a="props">Параметри</button><button class="sm danger" data-a="del">Видалити</button></span>`}${r.mine&&cloud()?'<button class="sm" data-a="send">📤 На перевірку</button>':''}
   </div></div>`).join(''):'<div class="empty">Маршрутів ще немає. Увімкніть режим редагування й натисніть «+ Новий».</div>';
  $('pList').innerHTML=S.points.length?S.points.map(p=>`<div class="item" data-p="${p.id}"><b>${(CATS[p.cat]||CATS.other)[0]} ${esc(p.name)}</b><div class="meta">${esc(p.desc)}</div></div>`).join(''):'<div class="empty">Точок немає.</div>';
 }
@@ -222,7 +228,7 @@ function insertAt(r,ll){let best=0,bd=1e9;const p=map.latLngToLayerPoint(ll);
 
 function stopEditing(){editId=null;mode=null;map.getContainer().style.cursor='';render()}
 function startEdit(id){closeSheet();editId=id;mode=null;selId=id;map.getContainer().style.cursor='crosshair';render();status('Клікайте по карті, щоб додавати точки в кінець. Тягніть білі кружечки — щоб переміщати, клік по лінії — вставити точку, правий клік або подвійний клік по кружечку — видалити.')}
-$('bNewRoute').onclick=()=>{const r={id:uid(),name:'Новий маршрут',color:COLORS[S.routes.length%COLORS.length],diff:'Легкий',desc:'',pts:[]};S.routes.push(r);save();startEdit(r.id)};
+$('bNewRoute').onclick=()=>{const r={id:uid(),mine:1,name:'Новий маршрут',color:COLORS[S.routes.length%COLORS.length],diff:'Легкий',desc:'',pts:[]};S.routes.push(r);save();startEdit(r.id)};
 $('bNewPoint').onclick=()=>{closeSheet();editId=null;mode='point';map.getContainer().style.cursor='crosshair';render();status('Клікніть на карті там, де потрібна нова точка.')};
 $('bDone').onclick=()=>{stopEditing();status('Готово. Зміни збережено.')};
 $('bUndo').onclick=()=>{const r=getR(editId);if(r&&r.pts.length){r.pts.pop();save();render()}};
@@ -243,7 +249,7 @@ window.openPoint=id=>{
 window.delPoint=id=>{if(confirm('Видалити точку?')){S.points=S.points.filter(p=>p.id!==id);save();map.closePopup();render()}};
 $('fPoint').addEventListener('submit',()=>{
  const d={name:$('pName').value.trim(),cat:$('pCat').value,desc:$('pDesc').value.trim(),url:$('pUrl').value.trim()};
- if(editingPoint)Object.assign(editingPoint,d);else if(pending){S.points.push({id:uid(),...d,...pending});pending=null}
+ if(editingPoint)Object.assign(editingPoint,d);else if(pending){S.points.push({id:uid(),mine:1,...d,...pending});pending=null}
  save();render();status('Точку збережено');
 });
 
@@ -257,6 +263,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('di
 $('rList').onclick=e=>{
  const it=e.target.closest('[data-r]');if(!it)return;const id=it.dataset.r,a=e.target.dataset.a,r=getR(id);
  if(a==='go')startLive(id);
+ else if(a==='send')send('routes',id);
  else if(a==='hide'){r.hidden=!r.hidden;save();render()}
  else if(a==='gpx')exportGpx(r);
  else if(a==='edit')editId===id?stopEditing():startEdit(id);
@@ -283,12 +290,12 @@ $('fGpx').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   const pts=[...x.getElementsByTagName('trkpt'),...x.getElementsByTagName('rtept')].map(n=>[+n.getAttribute('lat'),+n.getAttribute('lon')]).filter(p=>isFinite(p[0])&&isFinite(p[1]));
   if(pts.length<2)throw Error('замало GPS-точок');
   const nm=x.getElementsByTagName('name')[0];
-  const r={id:uid(),name:(nm&&nm.textContent.trim())||f.name.replace(/\.gpx$/i,''),color:COLORS[S.routes.length%COLORS.length],diff:'Середній',desc:'Імпортовано з GPX',pts};
+  const r={id:uid(),mine:1,name:(nm&&nm.textContent.trim())||f.name.replace(/\.gpx$/i,''),color:COLORS[S.routes.length%COLORS.length],diff:'Середній',desc:'Імпортовано з GPX',pts};
   S.routes.push(r);save();select(r.id);status(`Імпортовано «${r.name}»: ${pts.length} точок`);
  }catch(err){status('Помилка GPX: '+err.message)}e.target.value=''};
 
 /* JSON backup */
-$('bExpJson').onclick=()=>{download('data.json',JSON.stringify(S,null,1),'application/json');status('Копію збережено. Для публікації назвіть файл data.json.')};
+$('bExpJson').onclick=()=>{download('data.json',JSON.stringify(local(),null,1),'application/json');status('Копію збережено. Для публікації назвіть файл data.json.')};
 $('fJson').onchange=async e=>{const f=e.target.files[0];if(!f)return;
  try{const d=JSON.parse(await f.text());if(!valid(d))throw Error('невірна структура');S=d;save();selId=editId=null;render();fitAll();status('Дані відновлено')}catch(err){status('Помилка JSON: '+err.message)}e.target.value=''};
 $('bReset').onclick=()=>{if(confirm('Видалити всі свої зміни й повернути початкові дані?')){S=JSON.parse(JSON.stringify(SEED));save();selId=editId=null;render();fitAll()}};
@@ -397,8 +404,8 @@ function stopRec(){
 function saveRec(pts){
  if(pts.length<2){render();return status('Запис занадто короткий, маршрут не збережено')}
  const sp=L.LineUtil.simplify(pts.map(p=>map.project(p,18)),2).map(q=>{const l=map.unproject(q,18);return [+l.lat.toFixed(6),+l.lng.toFixed(6)]});
- const d=new Date().toLocaleDateString('uk-UA'),r={id:uid(),name:'Запис '+d,color:'#ff4d4d',diff:'Легкий',desc:'Записано GPS під час поїздки '+d,pts:sp};
- S.routes.push(r);save();select(r.id);openRoute(r.id);status(`Маршрут збережено: ${km(sp).toFixed(1)} км. Дайте йому назву.`);
+ const d=new Date().toLocaleDateString('uk-UA'),r={id:uid(),mine:1,name:'Запис '+d,color:'#ff4d4d',diff:'Легкий',desc:'Записано GPS під час поїздки '+d,pts:sp};
+ S.routes.push(r);save();select(r.id);openRoute(r.id);status(`Маршрут збережено: ${km(sp).toFixed(1)} км. Дайте йому назву, а потім натисніть «📤 На перевірку» у списку, щоб він з’явився на карті для всіх.`);
 }
 function addHere(){
  const go=ll=>{pending={lat:ll[0],lng:ll[1]};openPoint(null)},cur=(live&&live.pos)||(rec&&rec.pos);
@@ -413,12 +420,81 @@ $('rCenter').onclick=()=>{if(rec&&rec.pos){rec.follow=true;map.setView(rec.pos,1
 $('rPause').onclick=()=>{if(!rec)return;rec.paused=!rec.paused;$('rPause').textContent=rec.paused?'▶ Далі':'⏸ Пауза';$('rMsg').textContent=rec.paused?'⏸ Пауза: точки не записуються':REC_MSG};
 map.on('dragstart',()=>{if(rec)rec.follow=false});
 
+/* cloud: Supabase (заявки користувачів + адмін-панель) */
+const SB={url:'https://lqflxzozdfeqinzpqtwd.supabase.co',key:'sb_publishable_TYDOmjoQ9msIF-OH8ozF_w_Bl--BdGw',admin:'tic.zvyagel@gmail.com'};
+const SES='zviahel-session',ST={pending:'очікує перевірки',approved:'схвалено',rejected:'відхилено'};
+const cloud=()=>/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(SB.url);
+let ses=null,adm=[];try{ses=JSON.parse(localStorage.getItem(SES))}catch(e){}
+const pvL=L.layerGroup().addTo(map);
+function local(){return{routes:S.routes.filter(r=>!r.remote),points:S.points.filter(p=>!p.remote)}}
+const tokenCall=async(q,b)=>{const r=await fetch(SB.url+'/auth/v1/token?grant_type='+q,{method:'POST',headers:{apikey:SB.key,'Content-Type':'application/json'},body:JSON.stringify(b)}),d=await r.json();if(!r.ok)throw Error(d.error_description||d.msg||'Невірна пошта або пароль');ses={access_token:d.access_token,refresh_token:d.refresh_token};localStorage.setItem(SES,JSON.stringify(ses))};
+function logout(){ses=null;localStorage.removeItem(SES);setAdmin(false);pvL.clearLayers()}
+async function api(path,o={}){
+ const go=()=>{const h={apikey:SB.key,'Content-Type':'application/json',...(o.h||{})};if(ses)h.Authorization='Bearer '+ses.access_token;return fetch(SB.url+path,{method:o.m||'GET',headers:h,body:o.b?JSON.stringify(o.b):undefined})};
+ let r=await go();
+ if(r.status===401&&ses){try{await tokenCall('refresh_token',{refresh_token:ses.refresh_token});r=await go()}catch(e){logout();throw Error('Сесію завершено. Увійдіть знову')}}
+ if(!r.ok)throw Error((await r.json().catch(()=>({}))).message||'Помилка '+r.status);
+ return r.json().catch(()=>null);
+}
+async function loadRemote(){
+ if(!cloud())return;
+ try{
+  const [rs,ps]=await Promise.all([api('/rest/v1/routes?select=*&status=eq.approved&order=created_at'),api('/rest/v1/points?select=*&status=eq.approved&order=created_at')]);
+  S.routes=S.routes.filter(r=>!r.remote).concat(rs.map(r=>({id:r.id,remote:1,name:r.name,color:/^#[0-9a-f]{6}$/i.test(r.color)?r.color:'#f47735',diff:r.diff,desc:r.descr,pts:r.pts,author:r.author})));
+  S.points=S.points.filter(p=>!p.remote).concat(ps.map(p=>({id:p.id,remote:1,name:p.name,cat:p.cat,desc:p.descr,url:p.url,lat:p.lat,lng:p.lng})));
+  render();
+ }catch(e){status('Не вдалося завантажити маршрути з бази: '+e.message)}
+}
+window.send=async(kind,id)=>{
+ const it=(kind==='routes'?getR:getP)(id);if(!it)return;
+ if(kind==='routes'&&it.pts.length<2)return status('У маршруті замало точок');
+ const au=prompt('Ваше ім’я (необов’язково). Воно буде видне адміністратору:','');if(au===null)return;
+ const row=kind==='routes'?{name:it.name,color:it.color,diff:it.diff||'Легкий',descr:(it.desc||'').slice(0,500),pts:it.pts}:{name:it.name,cat:it.cat,descr:(it.desc||'').slice(0,400),url:(it.url||'').slice(0,300)||null,lat:it.lat,lng:it.lng};
+ Object.assign(row,{author:au.trim().slice(0,60)||null,status:'pending'});
+ try{
+  await api('/rest/v1/'+kind,{m:'POST',b:row,h:{Prefer:'return=minimal'}});
+  S[kind]=S[kind].filter(x=>x.id!==id);if(selId===id)selId=null;save();map.closePopup();render();
+  status('Дякуємо! Надіслано на перевірку. Після схвалення з’явиться на карті.');
+ }catch(e){status('Не вдалося надіслати: '+e.message)}
+};
+/* admin */
+function setAdmin(on){document.body.classList.toggle('admin',on);$('bLogin').hidden=on||!cloud();$('admPanel').hidden=!on}
+async function admLoad(){
+ try{
+  const [rs,ps]=await Promise.all([api('/rest/v1/routes?select=*&order=created_at.desc'),api('/rest/v1/points?select=*&order=created_at.desc')]);
+  adm=[...rs.map(x=>({...x,k:'routes'})),...ps.map(x=>({...x,k:'points'}))].sort((a,b)=>(a.status==='pending'?0:1)-(b.status==='pending'?0:1)||b.created_at.localeCompare(a.created_at));
+  const n=adm.filter(x=>x.status==='pending').length;$('admCount').textContent=n?`(нових: ${n})`:'';
+  $('admList').innerHTML=adm.length?adm.map(x=>`<div class="item" data-id="${x.id}"><b>${x.k==='routes'?'🚲':'📍'} ${esc(x.name)}</b><div class="meta">${ST[x.status]||esc(x.status)} · ${x.author?esc(x.author)+' · ':''}${new Date(x.created_at).toLocaleDateString('uk-UA')}${x.k==='routes'?' · '+km(x.pts).toFixed(1)+' км':''}</div>${x.descr?`<div class="meta">${esc(x.descr)}</div>`:''}<div class="row"><button class="sm alt" data-a="view">Показати</button>${x.status!=='approved'?'<button class="sm" data-a="approved">✓ Схвалити</button>':''}${x.status!=='rejected'?'<button class="sm alt" data-a="rejected">✕ Відхилити</button>':''}<button class="sm danger" data-a="del">🗑</button></div></div>`).join(''):'<div class="empty">Заявок немає.</div>';
+ }catch(e){status('Помилка завантаження заявок: '+e.message)}
+}
+function admView(x){
+ pvL.clearLayers();closeSheet();
+ if(x.k==='routes'){const l=L.polyline(x.pts,{color:'#fff',weight:6,dashArray:'8 8'}).addTo(pvL);map.fitBounds(l.getBounds().pad(.2))}
+ else{L.circleMarker([x.lat,x.lng],{radius:12,color:'#fff',fillColor:'#ff4d4d',fillOpacity:.9}).addTo(pvL).bindPopup(`<b>${esc(x.name)}</b><br>${esc(x.descr)}`).openPopup();map.setView([x.lat,x.lng],17)}
+ status('Попередній перегляд: біла пунктирна лінія. Відкрийте панель, щоб схвалити.');
+}
+$('admList').onclick=async e=>{
+ const it=e.target.closest('[data-id]'),a=e.target.dataset.a;if(!it||!a)return;const x=adm.find(y=>y.id===it.dataset.id);if(!x)return;
+ if(a==='view')return admView(x);
+ try{
+  if(a==='del'){if(!confirm(`Видалити «${x.name}» остаточно?`))return;await api(`/rest/v1/${x.k}?id=eq.${x.id}`,{m:'DELETE',h:{Prefer:'return=minimal'}})}
+  else await api(`/rest/v1/${x.k}?id=eq.${x.id}`,{m:'PATCH',b:{status:a},h:{Prefer:'return=minimal'}});
+  pvL.clearLayers();await admLoad();await loadRemote();status('Готово');
+ }catch(er){status('Помилка: '+er.message)}
+};
+$('bLogin').onclick=()=>{$('lEmail').value=SB.admin;$('lPass').value='';$('lErr').textContent='';$('dLogin').showModal()};
+$('fLogin').addEventListener('submit',async e=>{e.preventDefault();$('lErr').textContent='Вхід…';
+ try{await tokenCall('password',{email:$('lEmail').value.trim(),password:$('lPass').value});$('dLogin').close();setAdmin(true);await admLoad();status('Ви увійшли як адміністратор')}
+ catch(er){$('lErr').textContent=er.message}});
+$('bLogout').onclick=()=>{logout();status('Ви вийшли')};$('bAdmRef').onclick=()=>{admLoad();loadRemote()};
+
 /* init: local data > data.json > seed */
 (async()=>{
  try{const d=JSON.parse(localStorage.getItem(KEY));if(valid(d))S=d}catch(e){}
  if(!S){try{const r=await fetch('data.json',{cache:'no-cache'});if(r.ok){const d=await r.json();if(valid(d))S=d}}catch(e){}}
  if(!S)S=JSON.parse(JSON.stringify(SEED));
  render();fitAll();
+ setAdmin(!!(ses&&cloud()));loadRemote();if(ses&&cloud())admLoad();
  try{const u=JSON.parse(localStorage.getItem(RECKEY));if(Array.isArray(u)&&u.length>=2){localStorage.removeItem(RECKEY);if(confirm('Знайдено незавершений запис маршруту. Зберегти його?'))saveRec(u)}}catch(e){}
 })();
 </script></body></html>
