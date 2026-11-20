@@ -70,6 +70,21 @@ body.live .tools,body.rec .tools,body.live #acts,body.rec #acts{display:none}
  body.live .side,body.rec .side{display:none}
  button,.btn{min-height:40px}button.sm{min-height:36px;padding:6px 11px}.item{padding:12px}
 }
+
+:root{--panel:#16232f}
+button,.btn{border-radius:999px}.item{border-radius:16px;background:#ffffff0a}
+.grab::before{content:"";position:absolute;top:6px;left:50%;width:42px;height:4px;margin-left:-21px;border-radius:2px;background:#ffffff40}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;background:#ffffff12;color:#fff;border:1px solid #ffffff22;padding:7px 13px;font:700 12px system-ui}.chip.on{background:var(--lime);color:#14202a;border-color:var(--lime)}
+#q{width:100%;background:#0f1b27;color:#fff;border:1px solid #ffffff2a;border-radius:999px;padding:11px 16px;font:14px system-ui;margin-bottom:8px}
+.stat{display:flex;gap:8px;margin:6px 0 12px}.stat div{flex:1;background:#ffffff0d;border-radius:14px;padding:9px;text-align:center}.stat b{display:block;font-size:20px;color:var(--lime)}.stat small{font-size:10px;color:var(--muted)}
+.fcol{position:absolute;z-index:900;right:10px;top:12px;display:flex;flex-direction:column;gap:8px}
+.fcol button{width:46px;height:46px;min-height:0;padding:0;border-radius:50%;font-size:19px;background:#16232fee;color:#fff;border:1px solid #ffffff30;box-shadow:0 3px 12px #0008}
+@media(max-width:800px){
+ .side{transform:none!important;height:var(--sh,92px);max-height:none;transition:height .25s;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
+ .leaflet-control-zoom{display:none}.leaflet-bottom{bottom:98px}#acts{bottom:108px}
+ .tools{left:10px}
+}
 </style></head><body>
 <header>
  <h1>Веломаршрути <span>Звягеля</span><small>Карта маршрутів і місць громади</small></h1>
@@ -77,9 +92,12 @@ body.live .tools,body.rec .tools,body.live #acts,body.rec #acts{display:none}
 </header>
 <div class="layout">
 <aside class="side"><div class="grab" id="grab"><span>Маршрути й точки</span><span>▲</span></div>
- <p class="meta"><b>● Записати</b> — проїдьте шлях, і він збережеться як новий маршрут. <b>▶ Поїхали</b> — їдьте за вибраним маршрутом. Кнопки знаходяться внизу карти.</p>
+ <div class="stat"><div><b id="sKm">0</b><small>км усього</small></div><div><b id="sN">0</b><small>поїздок</small></div></div>
+ <input id="q" type="search" placeholder="Пошук маршрутів…" aria-label="Пошук маршрутів">
+ <div class="chips" id="chips"><button class="chip on" data-d="">Усі</button><button class="chip" data-d="Легкий">Легкі</button><button class="chip" data-d="Середній">Середні</button><button class="chip" data-d="Складний">Складні</button><button class="chip" data-f="1">★ Обрані</button></div>
  <h2>Маршрути <span class="ed"><button class="sm" id="bNewRoute">+ Новий</button></span></h2>
  <div id="rList"></div>
+ <h2>Мої поїздки</h2><div id="ridesList"></div>
 
  <h2>Місця й точки <span class="ed"><button class="sm" id="bNewPoint">+ Додати</button></span></h2>
  <button class="alt" id="bHere" style="width:100%;margin-bottom:8px">📍 Додати точку там, де я зараз</button><div id="pList"></div>
@@ -110,6 +128,7 @@ body.live .tools,body.rec .tools,body.live #acts,body.rec #acts{display:none}
   <button id="bUndo" class="alt" hidden>↶ Скасувати точку</button>
   <button id="bDone" hidden>Готово</button>
  </div>
+ <div class="fcol"><button id="bLayer" aria-label="Шар карти">🗺</button><button id="bLoc2" aria-label="Моє місце">◎</button><button id="bFit2" aria-label="Показати все">⤢</button></div>
  <div id="hud" hidden>
   <div class="gps" id="hGps"></div><div class="hudrow"><div><b id="hRem">–</b><small>залишилось, км</small></div><div><b id="hSpd">–</b><small>км/год</small></div><div><b id="hTime">0:00</b><small>час</small></div></div>
   <div class="bar"><i id="hBar"></i></div><div id="hMsg">Шукаємо GPS…</div>
@@ -172,7 +191,10 @@ const getR=id=>S.routes.find(r=>r.id===id), getP=id=>S.points.find(p=>p.id===id)
 const valid=d=>d&&Array.isArray(d.routes)&&Array.isArray(d.points);
 
 const map=L.map('map',{doubleClickZoom:false}).setView([50.5945,27.6235],14);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const BASES=[['Стандартна',L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'})],
+['Велокарта (CyclOSM): видно велоінфраструктуру',L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',{maxZoom:20,subdomains:'abc',attribution:'&copy; CyclOSM | &copy; OpenStreetMap contributors'})],
+['Супутник',L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'})]];
+let bi=0;try{bi=+localStorage.getItem('zv-base')||0}catch(e){}if(!BASES[bi])bi=0;BASES[bi][1].addTo(map);
 const poiL=L.layerGroup().addTo(map),rtL=L.layerGroup().addTo(map),vxL=L.layerGroup().addTo(map);
 const km=pts=>{let d=0;for(let i=1;i<pts.length;i++)d+=map.distance(pts[i-1],pts[i]);return d/1000};
 
@@ -207,12 +229,13 @@ function drawMap(){
 }
 function drawList(){
  const rl=$('rList');
- rl.innerHTML=S.routes.length?S.routes.map(r=>`<div class="item ${r.id===selId?'sel':''}" data-r="${r.id}">
+ const vis=S.routes.filter(r=>(!flt.d||r.diff===flt.d)&&(!flt.fav||favs.has(r.id))&&(!flt.q||(r.name+' '+(r.desc||'')).toLowerCase().includes(flt.q)));
+ rl.innerHTML=vis.length?vis.map(r=>`<div class="item ${r.id===selId?'sel':''}" data-r="${r.id}">
   <b><span class="dot" style="background:${esc(r.color)}"></span>${esc(r.name)}</b>
-  <div class="meta">${km(r.pts).toFixed(1)} км · ${esc(r.diff||'')} · ${r.pts.length} точок${r.draft?' · <b style="color:var(--orange)">чернетка</b>':''}</div>
+  <div class="meta">${km(r.pts).toFixed(1)} км · ${esc(r.diff||'')} · ~${Math.max(1,Math.round(km(r.pts)/15*60))} хв${r.draft?' · <b style="color:var(--orange)">чернетка</b>':''}</div>
   ${r.desc?`<div class="meta">${esc(r.desc)}</div>`:''}
   <div class="row">
-   <button class="go" data-a="go">▶ Поїхали</button>
+   <button class="go" data-a="go">▶ Поїхали</button><button class="sm alt" data-a="fav">${favs.has(r.id)?'★ Обране':'☆ В обране'}</button><button class="sm alt" data-a="share">🔗 Поділитись</button>
    <button class="sm alt" data-a="hide">${r.hidden?'Показати':'Сховати'}</button>
    <button class="sm alt" data-a="gpx">GPX</button>
    ${r.remote?'':`<span class="ed row"><button class="sm ${editId===r.id?'on':''}" data-a="edit">Змінити лінію</button><button class="sm alt" data-a="props">Параметри</button><button class="sm danger" data-a="del">Видалити</button></span>`}${r.mine&&cloud()?'<button class="sm" data-a="send">📤 На перевірку</button>':''}
@@ -264,6 +287,8 @@ $('rList').onclick=e=>{
  const it=e.target.closest('[data-r]');if(!it)return;const id=it.dataset.r,a=e.target.dataset.a,r=getR(id);
  if(a==='go')startLive(id);
  else if(a==='send')send('routes',id);
+ else if(a==='fav'){favs.has(id)?favs.delete(id):favs.add(id);try{localStorage.setItem('zv-fav',JSON.stringify([...favs]))}catch(e){}drawList()}
+ else if(a==='share')shareRoute(r);
  else if(a==='hide'){r.hidden=!r.hidden;save();render()}
  else if(a==='gpx')exportGpx(r);
  else if(a==='edit')editId===id?stopEditing():startEdit(id);
@@ -311,8 +336,15 @@ $('bLocate').onclick=()=>{
 
 /* live navigation */
 const mq=matchMedia('(max-width:800px)'),sheet=document.querySelector('.side');
-const closeSheet=()=>{if(mq.matches)sheet.classList.remove('open')};
-$('grab').onclick=()=>sheet.classList.toggle('open');
+const snaps=()=>{const H=sheet.parentElement.clientHeight;return[92,Math.round(H*.5),Math.round(H*.88)]};
+const setSnap=i=>{sheet.dataset.s=i;sheet.style.setProperty('--sh',snaps()[i]+'px')};
+const closeSheet=()=>{if(mq.matches)setSnap(0)};
+(()=>{const g=$('grab');let y0,h0,on=false,mv=false;g.style.touchAction='none';
+ g.addEventListener('pointerdown',e=>{on=true;mv=false;y0=e.clientY;h0=sheet.offsetHeight;g.setPointerCapture(e.pointerId);sheet.style.transition='none'});
+ g.addEventListener('pointermove',e=>{if(!on)return;const dy=y0-e.clientY;if(Math.abs(dy)>4)mv=true;sheet.style.setProperty('--sh',Math.max(92,Math.min(h0+dy,snaps()[2]))+'px')});
+ g.addEventListener('pointerup',()=>{if(!on)return;on=false;sheet.style.transition='';const a=snaps(),h=sheet.offsetHeight;
+  if(!mv)return setSnap((+sheet.dataset.s+1)%3);setSnap(a.reduce((b,v,i)=>Math.abs(v-h)<Math.abs(a[b]-h)?i:b,0))});
+ setSnap(0)})();
 let tt,live=null,wl=null;
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),4500)}
 const wakeLock=async()=>{try{wl=await navigator.wakeLock.request('screen')}catch(e){}};
@@ -345,15 +377,15 @@ function onPos(p){
  if(p.coords.accuracy<50)live.track.push([ll[0],ll[1],Date.now()]);
  let pr=project(r.pts,live.cum,ll,Math.max(0,live.idx-2),live.idx+12);
  if(pr.d>60){const g=project(r.pts,live.cum,ll,0,r.pts.length);if(g.d<pr.d)pr=g}
- live.idx=pr.i;const rem=(live.total-pr.along)/1000,off=pr.d>40,m=$('hMsg');
+ live.idx=pr.i;live.along=pr.along;const rem=(live.total-pr.along)/1000,off=pr.d>40,m=$('hMsg');
  $('hRem').textContent=rem.toFixed(1);$('hBar').style.width=Math.min(100,pr.along/live.total*100)+'%';
  $('hSpd').textContent=p.coords.speed!=null&&p.coords.speed>=0?(p.coords.speed*3.6).toFixed(0):'–';
  if(off&&!live.off&&navigator.vibrate)navigator.vibrate([200,100,200]);live.off=off;
- m.className=off?'off':'';m.textContent=off?`⚠ Ви відхилились від маршруту на ${Math.round(pr.d)} м`:rem<.03?'🏁 Ви на фініші!':'Ви на маршруті';
+ m.className=off?'off':'';m.textContent=off?`⚠ Ви відхилились від маршруту на ${Math.round(pr.d)} м`:rem<.03?'🏁 Ви на фініші!':'Ви на маршруті'+etaTxt(rem,pr.along);
  if(live.follow)map.setView(ll,Math.max(map.getZoom(),16));
 }
 function stopLive(silent){
- if(!live)return;const l=live;live=null;
+ if(!live)return;const l=live;live=null;if(!silent)addRide(l.r.name,(l.along||0)/1000,Date.now()-l.t0);
  navigator.geolocation.clearWatch(l.watch);clearInterval(l.timer);l.me&&map.removeLayer(l.me);l.acc&&map.removeLayer(l.acc);
  if(wl){wl.release().catch(()=>{});wl=null}
  $('hud').hidden=true;document.body.classList.remove('live');render();
@@ -387,6 +419,8 @@ function onRec(p){
  rec.me.setLatLng(ll);rec.acc.setLatLng(ll).setRadius(p.coords.accuracy);
  if(rec.follow)map.setView(ll,Math.max(map.getZoom(),16));
  $('rSpd').textContent=p.coords.speed!=null&&p.coords.speed>=0?(p.coords.speed*3.6).toFixed(0):'–';
+ const v=p.coords.speed;
+ if(v!=null){if(v<.8&&!rec.auto&&!rec.paused){rec.still=rec.still||Date.now();if(Date.now()-rec.still>8000){rec.auto=rec.paused=true;$('rMsg').textContent='⏸ Авто-пауза: ви стоїте';$('rPause').textContent='▶ Далі'}}else if(v>=.8){rec.still=0;if(rec.auto){rec.auto=rec.paused=false;$('rMsg').textContent=REC_MSG;$('rPause').textContent='⏸ Пауза'}}}
  if(rec.paused||p.coords.accuracy>30)return;
  const last=rec.pts[rec.pts.length-1];
  if(last){const d=map.distance(last,ll);if(d<8)return;rec.dist+=d}
@@ -399,7 +433,7 @@ function stopRec(){
  if(wl){wl.release().catch(()=>{});wl=null}
  $('rhud').hidden=true;document.body.classList.remove('rec');
  try{localStorage.removeItem(RECKEY)}catch(e){}
- saveRec(r.pts);
+ addRide('Запис маршруту',r.dist/1000,r.ms);saveRec(r.pts);
 }
 function saveRec(pts){
  if(pts.length<2){render();return status('Запис занадто короткий, маршрут не збережено')}
@@ -488,13 +522,34 @@ $('fLogin').addEventListener('submit',async e=>{e.preventDefault();$('lErr').tex
  catch(er){$('lErr').textContent=er.message}});
 $('bLogout').onclick=()=>{logout();status('Ви вийшли')};$('bAdmRef').onclick=()=>{admLoad();loadRemote()};
 
+/* app-like extras: filters, favourites, share, rides, map styles */
+const favs=new Set(),flt={q:'',d:'',fav:false};try{JSON.parse(localStorage.getItem('zv-fav')||'[]').forEach(x=>favs.add(x))}catch(e){}
+let rides=[];try{rides=JSON.parse(localStorage.getItem('zv-rides')||'[]')}catch(e){}
+const fmtMs=ms=>{const m=Math.round(ms/60000);return m>=60?Math.floor(m/60)+' год '+m%60+' хв':m+' хв'};
+function drawRides(){
+ $('sKm').textContent=rides.reduce((a,r)=>a+r.km,0).toFixed(0);$('sN').textContent=rides.length;
+ $('ridesList').innerHTML=rides.length?rides.slice(0,10).map(r=>`<div class="item"><b>🚴 ${esc(r.n)}</b><div class="meta">${new Date(r.d).toLocaleDateString('uk-UA')} · ${r.km.toFixed(1)} км · ${fmtMs(r.ms)} · ${(r.km/(r.ms/3600000)).toFixed(1)} км/год</div></div>`).join(''):'<div class="empty">Поїздок ще немає. Натисніть «● Записати» або «▶ Поїхали».</div>';
+}
+function addRide(n,km,ms){if(km<.1||ms<30000)return;rides.unshift({d:Date.now(),n,km:+km.toFixed(2),ms});rides=rides.slice(0,50);try{localStorage.setItem('zv-rides',JSON.stringify(rides))}catch(e){}drawRides()}
+const etaTxt=(rem,along)=>{const h=(Date.now()-live.t0)/3600000,v=h>.02&&along>100?along/1000/h:15,e=new Date(Date.now()+rem/Math.max(v,4)*3600000);return ' · фініш о '+e.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})};
+function shareRoute(r){
+ if(r.mine)return status('Спочатку надішліть маршрут на перевірку. Ділитись можна схваленими маршрутами.');
+ const u=location.href.split('#')[0]+'#route='+r.id;
+ if(navigator.share)navigator.share({title:r.name,text:`Веломаршрут «${r.name}», ${km(r.pts).toFixed(1)} км`,url:u}).catch(()=>{});
+ else navigator.clipboard.writeText(u).then(()=>status('Посилання скопійовано'),()=>status(u));
+}
+$('q').oninput=e=>{flt.q=e.target.value.trim().toLowerCase();drawList()};
+$('chips').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;flt.d=c.dataset.d||'';flt.fav=!!c.dataset.f;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));drawList()};
+$('bLayer').onclick=()=>{map.removeLayer(BASES[bi][1]);bi=(bi+1)%BASES.length;BASES[bi][1].addTo(map);try{localStorage.setItem('zv-base',bi)}catch(e){}toast('Карта: '+BASES[bi][0])};
+$('bLoc2').onclick=()=>$('bLocate').click();$('bFit2').onclick=fitAll;
+
 /* init: local data > data.json > seed */
 (async()=>{
  try{const d=JSON.parse(localStorage.getItem(KEY));if(valid(d))S=d}catch(e){}
  if(!S){try{const r=await fetch('data.json',{cache:'no-cache'});if(r.ok){const d=await r.json();if(valid(d))S=d}}catch(e){}}
  if(!S)S=JSON.parse(JSON.stringify(SEED));
  render();fitAll();
- setAdmin(!!(ses&&cloud()));loadRemote();if(ses&&cloud())admLoad();
+ setAdmin(!!(ses&&cloud()));drawRides();loadRemote().then(()=>{const m=location.hash.match(/route=([\w-]+)/);if(m&&getR(m[1]))select(m[1])});if(ses&&cloud())admLoad();
  try{const u=JSON.parse(localStorage.getItem(RECKEY));if(Array.isArray(u)&&u.length>=2){localStorage.removeItem(RECKEY);if(confirm('Знайдено незавершений запис маршруту. Зберегти його?'))saveRec(u)}}catch(e){}
 })();
 </script></body></html>
